@@ -166,8 +166,12 @@ const darkTheme = createTheme({
 
 export function CustomThemeProvider({ children }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
+    // Mark as hydrated first
+    setIsHydrated(true);
+
     const savedTheme = localStorage.getItem("theme-mode");
     if (savedTheme) {
       setIsDarkMode(savedTheme === "dark");
@@ -180,16 +184,29 @@ export function CustomThemeProvider({ children }) {
     }
   }, []);
 
+  // Save theme preference when it changes
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem("theme-mode", isDarkMode ? "dark" : "light");
+    }
+  }, [isDarkMode, isHydrated]);
+
   const toggleTheme = () => {
     setIsDarkMode((prev) => !prev);
   };
 
-  const currentTheme = isDarkMode ? darkTheme : lightTheme;
+  // Use light theme as default until hydrated to prevent mismatch
+  const currentTheme = isHydrated
+    ? isDarkMode
+      ? darkTheme
+      : lightTheme
+    : lightTheme;
 
   const value = {
-    isDarkMode,
+    isDarkMode: isHydrated ? isDarkMode : false,
     toggleTheme,
     theme: currentTheme,
+    isHydrated,
   };
 
   return (
