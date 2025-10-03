@@ -33,6 +33,12 @@ const Navigation = ({ children }) => {
               Login
             </Button>
           )}
+          {
+           user && (
+            <Button color="inherit" onClick={() => router.push("/profile")}>
+                Profile
+            </Button>
+            )}
           <ThemeToggle />
         </Toolbar>
       </AppBar>
