@@ -71,38 +71,781 @@ CREATE POLICY "Users can delete own avatar" ON storage.objects
   );
 ```
 
-### 3. Features Implemented
+### 3. Code Implementation Steps
 
-#### ✅ Database & Security
+#### Step 1: Create Redux Profile Slice
 
-- Secure user profiles table with RLS policies
-- Automatic profile creation on user signup
-- Username uniqueness validation
-- Avatar storage with proper permissions
+Create `src/lib/features/profile/profileSlice.js`:
 
-#### ✅ Redux State Management
+```javascript
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
-- `profileSlice.js` for managing profile state
-- Async thunks for profile operations (fetch, update, upload avatar)
-- Proper error handling and loading states
-- Profile caching and state management
+const initialState = {
+  profile: null,
+  loading: false,
+  error: null,
+  updating: false,
+};
 
-#### ✅ API Routes
+// Async thunk to fetch user profile
+export const fetchProfile = createAsyncThunk(
+  "profile/fetchProfile",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { supabase } = await import("@/lib/supabase/supabase");
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-- `GET /api/profile` - Fetch user profile (auto-creates if missing)
-- `PUT /api/profile` - Update profile information
-- `POST /api/profile/avatar` - Upload avatar image
-- Secure authentication and validation
+      if (sessionError || !session?.access_token) {
+        throw new Error("No valid authentication session found");
+      }
 
-#### ✅ UI Components
+      const response = await fetch("/api/profile", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-- `ProfileManager` component for profile editing
-- Profile page (`/profile`) for profile management
-- Avatar upload with preview functionality
-- Form validation and error handling
-- Navigation integration
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch profile");
+      }
 
-### 4. Profile Features
+      const data = await response.json();
+      return data.profile;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+// Async thunk to update user profile
+export const updateProfile = createAsyncThunk(
+  "profile/updateProfile",
+  async (profileData, { rejectWithValue }) => {
+    try {
+      const { supabase } = await import("@/lib/supabase/supabase");
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        throw new Error("No valid authentication session found");
+      }
+
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(profileData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update profile");
+      }
+
+      const data = await response.json();
+      return data.profile;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+// Async thunk to upload avatar
+export const uploadAvatar = createAsyncThunk(
+  "profile/uploadAvatar",
+  async (file, { rejectWithValue }) => {
+    try {
+      const { supabase } = await import("@/lib/supabase/supabase");
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        throw new Error("No valid authentication session found");
+      }
+
+      const formData = new FormData();
+      formData.append("avatar", file);
+
+      const response = await fetch("/api/profile/avatar", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to upload avatar");
+      }
+
+      const data = await response.json();
+      return data.avatar_url;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+const profileSlice = createSlice({
+  name: "profile",
+  initialState,
+  reducers: {
+    clearProfile: (state) => {
+      state.profile = null;
+      state.error = null;
+    },
+    clearError: (state) => {
+      state.error = null;
+    },
+    setProfile: (state, action) => {
+      state.profile = action.payload;
+      state.error = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch profile
+      .addCase(fetchProfile.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchProfile.fulfilled, (state, action) => {
+        state.loading = false;
+        state.profile = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchProfile.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Update profile
+      .addCase(updateProfile.pending, (state) => {
+        state.updating = true;
+        state.error = null;
+      })
+      .addCase(updateProfile.fulfilled, (state, action) => {
+        state.updating = false;
+        state.profile = action.payload;
+        state.error = null;
+      })
+      .addCase(updateProfile.rejected, (state, action) => {
+        state.updating = false;
+        state.error = action.payload;
+      })
+      // Upload avatar
+      .addCase(uploadAvatar.pending, (state) => {
+        state.updating = true;
+        state.error = null;
+      })
+      .addCase(uploadAvatar.fulfilled, (state, action) => {
+        state.updating = false;
+        if (state.profile) {
+          state.profile.avatar_url = action.payload;
+        }
+        state.error = null;
+      })
+      .addCase(uploadAvatar.rejected, (state, action) => {
+        state.updating = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+// Selectors
+export const selectProfile = (state) => state.profile.profile;
+export const selectProfileLoading = (state) => state.profile.loading;
+export const selectProfileUpdating = (state) => state.profile.updating;
+export const selectProfileError = (state) => state.profile.error;
+
+export const { clearProfile, clearError, setProfile } = profileSlice.actions;
+
+export default profileSlice.reducer;
+```
+
+#### Step 2: Update Redux Store
+
+Update `src/lib/store.js` to include the profile reducer:
+
+```javascript
+import { configureStore } from "@reduxjs/toolkit";
+import countriesReducer from "./features/countries/countriesSlice";
+import favouritesReducer from "./features/favourites/favouritesSlice";
+import profileReducer from "./features/profile/profileSlice";
+
+export const makeStore = () => {
+  return configureStore({
+    reducer: {
+      countries: countriesReducer,
+      favourites: favouritesReducer,
+      profile: profileReducer,
+    },
+  });
+};
+```
+
+#### Step 3: Create Profile API Routes
+
+Create `src/app/api/profile/route.js`:
+
+```javascript
+import {
+  getAuthenticatedUser,
+  supabaseServer,
+} from "@/lib/supabase/supabase-server";
+import { NextResponse } from "next/server";
+
+// GET - Fetch user profile
+export async function GET(request) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data: profile, error } = await supabaseServer
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        const { data: newProfile, error: createError } = await supabaseServer
+          .from("user_profiles")
+          .insert({
+            user_id: user.id,
+            display_name:
+              user.user_metadata?.name || user.email?.split("@")[0] || "User",
+            avatar_url: user.user_metadata?.avatar_url || null,
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          return NextResponse.json(
+            { error: "Failed to create profile" },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({ profile: newProfile });
+      }
+      return NextResponse.json(
+        { error: "Failed to fetch profile" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ profile });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT - Update user profile
+export async function PUT(request) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { username, display_name, bio, avatar_url } = await request.json();
+
+    if (username && username.length < 3) {
+      return NextResponse.json(
+        { error: "Username must be at least 3 characters long" },
+        { status: 400 }
+      );
+    }
+
+    if (username && !/^[a-zA-Z0-9_-]+$/.test(username)) {
+      return NextResponse.json(
+        {
+          error:
+            "Username can only contain letters, numbers, hyphens, and underscores",
+        },
+        { status: 400 }
+      );
+    }
+
+    const updateData = {};
+    if (username !== undefined) updateData.username = username;
+    if (display_name !== undefined) updateData.display_name = display_name;
+    if (bio !== undefined) updateData.bio = bio;
+    if (avatar_url !== undefined) updateData.avatar_url = avatar_url;
+
+    const { data: profile, error } = await supabaseServer
+      .from("user_profiles")
+      .update(updateData)
+      .eq("user_id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505" && error.message.includes("username")) {
+        return NextResponse.json(
+          { error: "Username is already taken" },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Failed to update profile" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ profile });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+#### Step 4: Create Avatar Upload API Route
+
+Create `src/app/api/profile/avatar/route.js`:
+
+```javascript
+import {
+  getAuthenticatedUser,
+  supabaseServer,
+} from "@/lib/supabase/supabase-server";
+import { NextResponse } from "next/server";
+
+export async function POST(request) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const formData = await request.formData();
+    const file = formData.get("avatar");
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid file type. Please upload a JPEG, PNG, GIF, or WebP image.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      return NextResponse.json(
+        { error: "File too large. Maximum size is 5MB." },
+        { status: 400 }
+      );
+    }
+
+    const fileExtension = file.name.split(".").pop();
+    const fileName = `${user.id}-${Date.now()}.${fileExtension}`;
+    const filePath = `avatars/${fileName}`;
+
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    const { error: uploadError } = await supabaseServer.storage
+      .from("avatars")
+      .upload(filePath, buffer, {
+        contentType: file.type,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      return NextResponse.json(
+        { error: "Failed to upload image" },
+        { status: 500 }
+      );
+    }
+
+    const { data: urlData } = supabaseServer.storage
+      .from("avatars")
+      .getPublicUrl(filePath);
+
+    const avatar_url = urlData.publicUrl;
+
+    const { data: profile, error: updateError } = await supabaseServer
+      .from("user_profiles")
+      .update({ avatar_url })
+      .eq("user_id", user.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return NextResponse.json(
+        { error: "Failed to update profile with new avatar" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      avatar_url,
+      profile,
+      message: "Avatar uploaded successfully",
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+#### Step 5: Create ProfileManager Component
+
+Create `src/components/ProfileManager.jsx`:
+
+```javascript
+"use client";
+import { useAuth } from "@/app/context/AuthContext";
+import {
+  fetchProfile,
+  selectProfile,
+  selectProfileError,
+  selectProfileLoading,
+  selectProfileUpdating,
+  updateProfile,
+  uploadAvatar,
+} from "@/lib/features/profile/profileSlice";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import EditIcon from "@mui/icons-material/Edit";
+import SaveIcon from "@mui/icons-material/Save";
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  IconButton,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useEffect, useRef, useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+
+const ProfileManager = () => {
+  const { user } = useAuth();
+  const dispatch = useDispatch();
+  const profile = useSelector(selectProfile);
+  const loading = useSelector(selectProfileLoading);
+  const updating = useSelector(selectProfileUpdating);
+  const error = useSelector(selectProfileError);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState({
+    username: "",
+    display_name: "",
+    bio: "",
+  });
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (user) {
+      dispatch(fetchProfile());
+    }
+  }, [user, dispatch]);
+
+  useEffect(() => {
+    if (profile) {
+      setFormData({
+        username: profile.username || "",
+        display_name: profile.display_name || "",
+        bio: profile.bio || "",
+      });
+    }
+  }, [profile]);
+
+  const handleInputChange = (field) => (event) => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: event.target.value,
+    }));
+  };
+
+  const handleAvatarChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setAvatarFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => setAvatarPreview(e.target.result);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      if (avatarFile) {
+        await dispatch(uploadAvatar(avatarFile)).unwrap();
+        setAvatarFile(null);
+        setAvatarPreview(null);
+      }
+      await dispatch(updateProfile(formData)).unwrap();
+      setIsEditing(false);
+    } catch (error) {
+      console.error("Error saving profile:", error);
+    }
+  };
+
+  const handleCancel = () => {
+    if (profile) {
+      setFormData({
+        username: profile.username || "",
+        display_name: profile.display_name || "",
+        bio: profile.bio || "",
+      });
+    }
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    setIsEditing(false);
+  };
+
+  if (!user) {
+    return (
+      <Card>
+        <CardContent>
+          <Typography variant="body1" color="text.secondary">
+            Please log in to manage your profile.
+          </Typography>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent>
+          <Box display="flex" justifyContent="center" alignItems="center" p={3}>
+            <CircularProgress />
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent>
+        <Box
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+          mb={3}
+        >
+          <Typography variant="h5" component="h2">
+            Profile Settings
+          </Typography>
+          {!isEditing ? (
+            <Button
+              variant="outlined"
+              startIcon={<EditIcon />}
+              onClick={() => setIsEditing(true)}
+            >
+              Edit Profile
+            </Button>
+          ) : (
+            <Box display="flex" gap={1}>
+              <Button
+                variant="outlined"
+                onClick={handleCancel}
+                disabled={updating}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={
+                  updating ? <CircularProgress size={16} /> : <SaveIcon />
+                }
+                onClick={handleSave}
+                disabled={updating}
+              >
+                Save Changes
+              </Button>
+            </Box>
+          )}
+        </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        <Box display="flex" flexDirection="column" gap={3}>
+          <Box display="flex" alignItems="center" gap={3}>
+            <Box position="relative">
+              <Avatar
+                src={
+                  avatarPreview ||
+                  profile?.avatar_url ||
+                  user?.user_metadata?.avatar_url
+                }
+                sx={{ width: 100, height: 100 }}
+              >
+                {(profile?.display_name || user?.email || "U")[0].toUpperCase()}
+              </Avatar>
+              {isEditing && (
+                <IconButton
+                  sx={{
+                    position: "absolute",
+                    bottom: -5,
+                    right: -5,
+                    backgroundColor: "primary.main",
+                    color: "white",
+                    "&:hover": { backgroundColor: "primary.dark" },
+                  }}
+                  size="small"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <CameraAltIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
+            <Box>
+              <Typography variant="h6">
+                {profile?.display_name || user?.user_metadata?.name || "User"}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {user?.email}
+              </Typography>
+              {profile?.username && (
+                <Typography variant="body2" color="text.secondary">
+                  @{profile.username}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+
+          <TextField
+            label="Display Name"
+            value={formData.display_name}
+            onChange={handleInputChange("display_name")}
+            disabled={!isEditing}
+            fullWidth
+            helperText="Your public display name"
+          />
+
+          <TextField
+            label="Username"
+            value={formData.username}
+            onChange={handleInputChange("username")}
+            disabled={!isEditing}
+            fullWidth
+            helperText="Unique username (letters, numbers, hyphens, underscores only)"
+          />
+
+          <TextField
+            label="Bio"
+            value={formData.bio}
+            onChange={handleInputChange("bio")}
+            disabled={!isEditing}
+            fullWidth
+            multiline
+            rows={3}
+            helperText="Tell others about yourself"
+          />
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleAvatarChange}
+            style={{ display: "none" }}
+          />
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default ProfileManager;
+```
+
+#### Step 6: Create Profile Page
+
+Create `src/app/profile/page.jsx`:
+
+```javascript
+"use client";
+import { useAuth } from "@/app/context/AuthContext";
+import ProfileManager from "@/components/ProfileManager";
+import { fetchProfile } from "@/lib/features/profile/profileSlice";
+import { Box, Typography } from "@mui/material";
+import { useEffect } from "react";
+import { useDispatch } from "react-redux";
+
+const ProfilePage = () => {
+  const { user } = useAuth();
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    if (user) {
+      dispatch(fetchProfile());
+    }
+  }, [user, dispatch]);
+
+  return (
+    <Box sx={{ maxWidth: 800, mx: "auto", p: 3 }}>
+      <Typography variant="h4" gutterBottom>
+        My Profile
+      </Typography>
+      <ProfileManager />
+    </Box>
+  );
+};
+
+export default ProfilePage;
+```
+
+#### Step 7: Update Navigation
+
+Update `src/components/Navigaton.jsx` to include the profile link:
+
+```javascript
+// Add this after the favourites button in the navigation
+{
+  user && (
+    <Button color="inherit" onClick={() => router.push("/profile")}>
+      Profile
+    </Button>
+  );
+}
+```
+
+### 4. Features Implemented
 
 #### 🎯 **Profile Information**
 
