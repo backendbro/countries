@@ -300,7 +300,7 @@ export const makeStore = () => {
 
 #### Create supabase-server.js:
 
-Create `src/supabase/supabase-server.js
+Create `src/lib/supabase/supabase-server.js`
 
 ```javascript
 // Server-side Supabase client for API routes
